@@ -1,0 +1,28 @@
+version: "3"
+
+services:
+  assetto-server:
+    image: seejy/assetto-server-manager:latest
+    container_name: assetto-corsa-server
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      # Montar directorio del juego Assetto Corsa
+      - ./assetto:/home/assetto/server-manager/assetto
+      # Config del Server Manager
+      - ./config.yml:/home/assetto/server-manager/config.yml
+      # Base de datos persistente (SQLite/BoltDB)
+      - ./data:/home/assetto/server-manager/data
+    environment:
+      - TZ=America/Santo_Domingo
+
+  # Opcional: Cloudflared para exponer el servidor
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: assetto-cloudflared
+  #   restart: unless-stopped
+  #   command: tunnel --no-autoupdate run --token $CLOUDFLARE_TUNNEL_TOKEN
+  #   environment:
+  #     - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+  #   depends_on:
+  #     - assetto-server

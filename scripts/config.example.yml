@@ -1,0 +1,97 @@
+# Assetto Server Manager - Configuration Example
+# Full documentation: https://github.com/JustaPenguin/assetto-server-manager
+
+# Path to your Assetto Corsa install folder (Linux)
+# This should contain the "ac" executable and "content" folder
+steam:
+  enabled: true
+  username: "your_steam_username"
+  password: "your_steam_password"
+  # App ID for Assetto Corsa
+  app_id: 244210
+
+server:
+  # Path to the assetto corsa installation (relative to server-manager or absolute)
+  # If using Steam, this will be auto-detected
+  name: "Assetto Corsa Server - República Dominicana"
+  description: "Servidor oficial de Assetto Corsa para la comunidad dominicana"
+  ping: true
+  
+  # Maximum number of clients
+  max_clients: 22
+  
+  # Server port (UDP)
+  tcp: 9600
+  udp: 9600
+  
+  # Admin password (for server manager)
+  admin_password: "change-me-after-setup"
+  
+  # Ticket system (optional)
+  ticket:
+    enabled: false
+    max_tickets: 0
+  
+  # Force server to be public in server list
+  force_all_servers_in_listing: true
+  
+  # Time limit for races (minutes, 0 = unlimited)
+  time_limit: 15
+  
+  # Multilap time (minutes)
+  multilap_time: 0
+  
+  # Weather preset (use Sol or default)
+  weather: "default"
+
+# Server Manager HTTP API
+api:
+  port: 8081
+  address: "127.0.0.1"
+
+# Server Manager Web UI
+ui:
+  port: 8772
+  address: "0.0.0.0"
+
+# Log settings
+log:
+  file: "/home/assetto/server-manager/logs/server.log"
+  level: "info"  # debug, info, warn, error
+  rotation: true
+  max_size_mb: 100
+  max_backups: 10
+
+# Database (BoltDB by default)
+store:
+  type: "bolt"  # bolt or json
+  bolt:
+    path: "/home/assetto/server-manager/data/ac-server-manager.db"
+  json:
+    path: "/home/assetto/server-manager/data/ac-server-manager.json"
+
+# Discord integration (optional)
+discord:
+  enabled: false
+  token: "your_discord_bot_token"
+  channel_id: "your_discord_channel_id"
+  # Notifications for: race_start, race_end, new_driver, penalty
+  notify_on:
+    - race_start
+    - race_end
+    - new_driver
+
+# Stracker plugin (optional) - AC leaderboard integration
+stracker:
+  enabled: false
+  api_key: "your_stracker_api_key"
+
+# KissMyRank plugin (optional)
+kissmyrank:
+  enabled: false
+  api_key: "your_kmr_api_key"
+
+# RealPenalty plugin (optional)
+realpenalty:
+  enabled: false
+  # Configuration for real penalty system

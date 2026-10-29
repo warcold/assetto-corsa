@@ -1,0 +1,22 @@
+{
+  "server_manager": {
+    "config_file": "config.yml",
+    "ui_port": 8772,
+    "api_port": 8081,
+    "db_type": "bolt",
+    "db_path": "/home/assetto/server-manager/data/ac-server-manager.db"
+  },
+  "assetto_corsa": {
+    "steam_app_id": 244210,
+    "game_tcp_port": 9600,
+    "game_udp_port": 9600,
+    "http_api_port": 8081,
+    "install_path": "/home/assetto/server-manager/assetto",
+    "content_path": "/home/assetto/server-manager/assetto/content"
+  },
+  "cloudflare": {
+    "domain": "assetto.armada.do",
+    "tunnel_port": 8772,
+    "proxy_mode": "proxy"
+  }
+}
