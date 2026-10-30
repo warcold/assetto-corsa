@@ -18,7 +18,7 @@
   - `docker ps` → solo `assetto-corsa-server`; `docker ps -a | grep 041f\|35be` → vacío; sin units assetto
   - `ls /srv/assetto-corsa/assetto/cfg/` → solo symlinks `entry_list.ini` y `server_cfg.ini` → `../content/config/`
   - `bash scripts/start-race.sh` → `302 → /live-timing`, `./acServer.real` vivo (PID 65), `9600` UDP+TCP, `/INFO` con el evento y `layout_gp_a`
-- **Hallazgo**: el SM detuvo el evento a las `15:55:22Z` (`Shutting down server process: 19`), **10m15s** tras el arranque de `15:45:07Z`; `[PRACTICE] TIME=30` descarta fin de sesión, y `docker events` no muestra señal/restart del contenedor (el `Stop()` fue interno: clic/stray en el panel o Force Stop del evento). Se relanzó a las `~16:01Z`; watcher temporal `/tmp/ac-watch.log` (20 min) para confirmar si se repite
+- **Nota**: el SM detuvo el evento a las `15:55:22Z` (`Shutting down server process: 19`) porque **el owner lo paró intencionalmente desde el panel** para trabajar sin el proceso; no es un fallo (`[PRACTICE] TIME=30` y `ForceStopTime=0` ya lo descartaban). Se relanzó a las `~16:01Z` para verificar el estado y se volvió a detener a las `~16:14Z` por la misma razón; sin watchers pendientes
 - **Pendientes**: igual que [15:46] (join real, rotar passwords, auto-arranque tras reboot, `map.ini` cosmético)
 
 ### [15:46] - Restauración del paquete oficial v1.15 + servidor controlado por el Server Manager
