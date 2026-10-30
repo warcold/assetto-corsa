@@ -2,6 +2,25 @@
 
 ## 2026-10-30
 
+### [16:58] - Limpieza de duplicados/restos + re-arranque del evento
+- **Tipo**: infra + servicio
+- **Modificado** (VPS):
+  - Eliminados contenedores zombie `041f178942fe` (`busy_archimedes`) y `35be9bb60d00` (`elegant_heyrovsky`), restos de `docker run --rm` de diagnósticos (Up 10h, ~9 MB c/u, volúmenes anónimos)
+  - Eliminada unit huérfana `/etc/systemd/system/assetto-acserver-standalone.service` (backup `/root/assetto-acserver-standalone.service.bkup-20261030`; `daemon-reload` + `reset-failed`)
+  - Eliminados restos standalone en `/srv/assetto-corsa`: `acServer` raíz (467 B), `acServer-wrapper.sh`, `start-acserver-host.sh`, `start-race.sh`, `switch-zone.sh`, `scripts/`, `cfg-backups/`, `steamcmd_linux.tar.gz`, `config.yml.bkup-20261029` y `.bkup-20261030-restore`
+  - Eliminados backups de config: 6 en `assetto/cfg/*.bkup-*` + `content/config/server_cfg.ini.bkup-20261030-rd` (se conserva `config.yml.bkup-20261030-lobby`)
+  - Eliminados logs viejos `/var/log/acserver-{rd,host,standalone}.log`, 4 sesiones antiguas (`output_*10-33,15-36,15-40,15-43`) y temporales `/tmp` propios (incl. `/tmp/smcj`)
+  - **NO** tocado (verificado que no son duplicados): SteamCMD (`steamcmd.sh`, `linux32/`, `linux64/`, `package/`, `public/`, `siteserverui/`, `update_hosts_cached.vdf`), contenido (178 `data.acd`, 21 pistas), symlinks `cfg/`, 4 carreras guardadas, backups `/root/*`
+- **Afecta a**: vps-preprod (servidor AC)
+- **Causa**: dejar el stack sin duplicados ni restos de diagnósticos antes de darlo por listo
+- **Estado**: ✅ limpieza completada; ✅ servidor relanzado desde el SM
+- **Verificación LIVE**:
+  - `docker ps` → solo `assetto-corsa-server`; `docker ps -a | grep 041f\|35be` → vacío; sin units assetto
+  - `ls /srv/assetto-corsa/assetto/cfg/` → solo symlinks `entry_list.ini` y `server_cfg.ini` → `../content/config/`
+  - `bash scripts/start-race.sh` → `302 → /live-timing`, `./acServer.real` vivo (PID 65), `9600` UDP+TCP, `/INFO` con el evento y `layout_gp_a`
+- **Hallazgo**: el SM detuvo el evento a las `15:55:22Z` (`Shutting down server process: 19`), **10m15s** tras el arranque de `15:45:07Z`; `[PRACTICE] TIME=30` descarta fin de sesión, y `docker events` no muestra señal/restart del contenedor (el `Stop()` fue interno: clic/stray en el panel o Force Stop del evento). Se relanzó a las `~16:01Z`; watcher temporal `/tmp/ac-watch.log` (20 min) para confirmar si se repite
+- **Pendientes**: igual que [15:46] (join real, rotar passwords, auto-arranque tras reboot, `map.ini` cosmético)
+
 ### [15:46] - Restauración del paquete oficial v1.15 + servidor controlado por el Server Manager
 - **Tipo**: infra + servicio + config
 - **Modificado**:
