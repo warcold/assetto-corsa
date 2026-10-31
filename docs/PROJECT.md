@@ -188,6 +188,10 @@ ssh vps-preprod "docker logs assetto-corsa-server --tail 20"
   Skip si UDP 9600 activo o si existe `/srv/assetto-corsa/.autostart-paused`
   (crear ese archivo para detener el watchdog; borrarlo para reactivar).
   Log: `/srv/assetto-corsa/autostart.log`.
+  - El script parchea `ADDRESS=154.53.35.102` en el config ANTES de cargar la carrera.
+- **IPv6 deshabilitado (VPS)**: `/etc/sysctl.d/99-disable-ipv6.conf` fuerza
+  `net.ipv6.conf.all.disable_ipv6=1` → el acServer se bind SOLO a IPv4.
+  Sin esto, el LAN browser del AC mostraba `2605:a142:...` (IPv6 del túnel CF).
 - **Fallback sin SM**: `assetto-server.service` (disabled) corre el acServer directo
   en host. NO usar con el contenedor arriba (conflicto de puertos); requiere
   `chown -R 999:987 /srv/assetto-corsa` (el servicio corre como uid 999).
@@ -249,12 +253,45 @@ ssh vps-preprod "docker logs assetto-corsa-server --tail 20"
 | 3 | ⏳ | Discord/Stracker |
 | 4 | ⏳ | QA y deploy final |
 
+## Notas de troubleshooting (2026-10-31)
+
+### Crash del acServer cada ~2 min
+- **Causa**: El binario v1.15 se crashea con "signal: terminated" cuando se ejecuta
+  en el contenedor con `network_mode: host` y el SM lo reinicia constantemente.
+  El problema se resuelve reiniciando el contenedor (`docker restart assetto-corsa-server`)
+  después de parchear el config del race.
+- **Solución**: 
+  1. Deshabilitar IPv6 en el VPS: `/etc/sysctl.d/99-disable-ipv6.conf`
+  2. Parchear `config.yml` con `monitoring.plugins: []`
+  3. Reiniciar el contenedor
+  4. Usar `autostart-race.sh` para cargar la carrera automáticamente
+
+### Config del race no se aplica al acServer
+- El acServer lee el config SOLO al iniciar. Si se parchea el config después de que
+  el acServer arranca, los cambios NO se aplican hasta el siguiente reinicio.
+- **Solución**: El script `autostart-race.sh` parchea el config ANTES de cargar la
+  carrera (cuando el SM regenera el config) y luego matar el acServer para que
+  se reinicie con los valores nuevos.
+- **Config aplicada**: `SESSION_START=30`, `WAIT_TIME=30`, `PICKUP_MODE_ENABLED=1`,
+  `LOOP_MODE=1`, `RACE_PIT_WINDOW_START=0`, `RACE_PIT_WINDOW_END=0`.
+
+### IPv6 deshabilitado (VPS)
+- Se deshabilitó IPv6 en el VPS para forzar que el acServer se bind SOLO a IPv4.
+- Sin esto, el LAN browser del AC mostraba `2605:a142:...` (IPv6 del túnel Cloudflare).
+- Archivo: `/etc/sysctl.d/99-disable-ipv6.conf`
+- Contenido: `net.ipv6.conf.all.disable_ipv6=1` y `net.ipv6.conf.default.disable_ipv6=1`
+- Comando de aplicar: `sysctl -w net.ipv6.conf.all.disable_ipv6=1`
+
 ## Pendientes conocidos
 
 - **Join real de cliente** por `srv00.assetto.armada.do:9600` (checksums `data.acd`/pista).
 - Rotar `ADMIN_PASSWORD` (juego).
 - (Opcional) proxy que parchee `"ip":""` en `/INFO` si se quiere auto-join por URL.
 - `ui_track.json`/`map.ini` del live timing (cosmético).
+- **Config del race**: El autostart parchea la config del container (no el host mount)
+  ANTES de cargar la carrera, y luego mata el acServer para que se reinicie con
+  los valores nuevos. Esto evita que el SM sobrescriba los valores de `SESSION_START`,
+  `WAIT_TIME`, etc.
 
 ## Upstream References
 
