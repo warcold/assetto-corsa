@@ -2,6 +2,42 @@
 
 ## 2026-10-31
 
+### [02:45] - Server Manager restaurado: website online + auto-arranque en boot
+- **Tipo**: infra | arquitectura (reversión parcial de la migración de las 02:15)
+- **Qué**: el website `assetto.armada.do` quedó caído (HTTP 502) al retirar el SM.
+  Se restauró el Server Manager como gestor del acServer, con el website online y
+  auto-arranque de carrera en boot.
+- **Hallazgos**:
+  - El `entrypoint-wrapper.sh` en el VPS estaba **corrupto** (mojibake del upload
+    fallido de la sesión anterior: `doo`, `(dirct =`, texto garbled) — el contenedor
+    habría crasheado. Reescrito limpio y desplegado vía scp.
+  - El túnel Cloudflare estaba sano (502 = origen muerto, no túnel).
+- **Cambios**:
+  - `entrypoint-wrapper.sh` reescrito: inyecta `[LAUNCHER]`/`[WEATHER_0]`, symlinks
+    `cfg/`, fuerza `REGISTER_TO_LOBBY=0`/`SLEEP_TIME=1`, `exec server-manager`.
+    Ya NO lanza acServer en background (lo lanza el SM con cada carrera).
+  - Wrapper `acServer` + fix: **parchea `HTTP_PORT` 8081→8082** en cada arranque de
+    carrera (SM regenera el config con 8081; 8081 lo ocupa adminer). Verificado:
+    SM escribió 8081 → binario bindeó 8082.
+  - Ownership de `/srv/assetto-corsa/` → `1000:1000` (uid del contenedor; el chown
+    a 999 de la migración habría roto las escrituras del SM).
+  - `systemd assetto-server` → **disabled** (fallback documentado; conflicto de
+    puertos si se usa con el contenedor arriba).
+  - Nuevo: `autostart-race.sh` + `assetto-sm-autostart.service` (oneshot, enabled):
+    al boot espera la UI `:8772`, loguea y lanza la carrera default
+    (`9205601d` Highlands). Skip si UDP 9600 ya activo.
+- **Verificado LIVE**:
+  - Contenedor `assetto-corsa-server` Up, SM en `:8772` (HTTP 302).
+  - Carrera Highlands arrancada vía API (`/custom/load/9205601d…` → 302 live-timing).
+  - `ss`: UDP 9600 + TCP 9600 + TCP 8082 por `acServer.real` (pid del contenedor).
+  - Website `https://assetto.armada.do` → HTTP 302 (online vía túnel).
+  - `/INFO` externo: 200 OK, `ks_highlands-layout_long`, cport 8082.
+  - Autostart: `systemctl start assetto-sm-autostart` → exit 0 con skip correcto.
+- **Limitación que persiste**: `/INFO` devuelve `"ip":""` (bug binario v1.15) —
+  no afecta el juego manual (`srv00.assetto.armada.do:9600` en CM).
+- **Docs**: PROJECT.md actualizado (arquitectura final, wrapper con fix de puerto,
+  SM activo, flujo de arranque, gotchas 1/11/13, fases 0.6-0.8).
+
 ### [02:15] - Migración a systemd directo: Server Manager retirado
 - **Tipo**: infra | arquitectura
 - **Qué**: el acServer corre ahora **directo en el host** vía systemd

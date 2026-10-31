@@ -18,25 +18,40 @@ Jugador (Assetto Corsa)
     ▼
 vps-preprod 154.53.35.102
     │
-    ├─ systemd: assetto-server.service (User=assetto, Restart=always, enabled)
+    ├─ contenedor assetto-corsa-server (seejy/assetto-server-manager, host network,
+    │     restart: unless-stopped, docker compose en /srv/assetto-corsa/)
     │     │
-    │     └─ assetto/acServer (wrapper) ──exec──► assetto/acServer.real
-    │              │            (ELF 32-bit Go, STATICALLY LINKED → sin dependencia GLIBC)
-    │              ├─ UDP+TCP 9600 (juego)
-    │              └─ HTTP 8082   (API /INFO; 8081 lo ocupa adminer Docker)
+    │     ├─ server-manager v1.7.9 (Go) ── UI :8772 ── Cloudflare Tunnel ── assetto.armada.do
+    │     │        │ lanza al iniciar una carrera (API /custom/load/{uuid} o UI):
+    │     │        ▼
+    │     └─ assetto/acServer (wrapper: parchea HTTP_PORT 8081→8082, [LAUNCHER],
+    │              │           REGISTER_TO_LOBBY=0, SLEEP_TIME=1, symlinks cfg/)
+    │              └─exec──► assetto/acServer.real (ELF 32-bit Go, STATICALLY LINKED)
+    │                       ├─ UDP+TCP 9600 (juego)
+    │                       └─ HTTP 8082   (API /INFO; 8081 lo ocupa adminer Docker)
+    │
+    ├─ systemd: assetto-sm-autostart.service (oneshot, enabled)
+    │     └─ al boot: espera UI :8772 → lanza la carrera guardada por defecto
+    │       (9205601d = Highlands practice). Skip si UDP 9600 ya está activo.
+    │
+    ├─ systemd: assetto-server.service (FALLBACK, disabled)
+    │     └─ acServer directo en host sin SM. NO arrancar con el contenedor arriba
+    │       (conflicto de puertos). Si se usa: chown -R 999:987 /srv/assetto-corsa
+    │       y detener el contenedor primero.
     │
     └─ /srv/assetto-corsa/
           ├─ assetto/{acServer,acServer.real,content,cfg,system,logs,results,...}
-          ├─ config.yml            (legacy del SM, ya sin uso)
-          └─ data/                 (legacy boltdb del SM, ya sin uso)
+          ├─ config.yml            (config del Server Manager)
+          ├─ data/                 (boltdb del SM: carreras guardadas)
+          ├─ entrypoint-wrapper.sh (entrypoint del contenedor: prepara config)
+          ├─ autostart-race.sh     (lo invoca assetto-sm-autostart.service)
+          └─ docker-compose.yml
 ```
 
-> **2026-10-31**: el Server Manager (Docker, `:8772`) fue **retirado** — su UI no
-> respondía, no auto-arrancaba el acServer y el `/INFO` del juego seguía vacío.
-> El acServer corre ahora **directo en el host** vía systemd. Los contenedores
-> zombie AC fueron eliminados. `config.yml`, `data/`, `entrypoint-wrapper.sh`,
-> `custom-entrypoint.sh`, `hostname-wrapper/` y `docker-compose.yml` quedan como
-> legacy (se pueden borrar).
+> **Historia 2026-10-31**: se probó acServer directo vía systemd (sin SM) para
+> estabilizar; funcionó pero dejó el website `assetto.armada.do` caído (502).
+> Estado final: **SM restaurado** gestiona el acServer, systemd queda como
+> fallback deshabilitado, y un oneshot auto-arranca la carrera al boot.
 
 ## Instalación — método verificado
 
@@ -73,38 +88,55 @@ vps-preprod 154.53.35.102
 ## Wrapper `assetto/acServer` (obligatorio)
 
 El SM genera `content/config/server_cfg.ini` con bugs/omisiones que el binario v1.15
-no tolera. El wrapper (1227 B) se ejecuta en cada arranque y:
+no tolera. El wrapper se ejecuta en cada arranque de carrera (SM → acServer) y:
 
 1. Deja **una sola** sección `[LAUNCHER]` (el binario hace panic si no existe; vacía basta).
 2. Garantiza `[WEATHER_0]` (sin ella: `panic: invalid argument to Intn` en `UpdateWeather`).
 3. Fuerza `REGISTER_TO_LOBBY=0` (el lobby de Kunos `93.57.10.21` responde 404 y el
    servidor se apaga solo tras 5 intentos: `LOBBY COULD NOT BE RACHED`).
 4. Fuerza `SLEEP_TIME=1` (con 0: `CPU overload`).
-5. Si `TRACK=ks_nurburgring` y `CONFIG_TRACK=` viene vacío, inyecta
+5. **Parchea `HTTP_PORT` 8081 → 8082** (el SM regenera el config con 8081 en cada
+   carrera; 8081 lo ocupa `staging-adminer-1` en el host — verificado 2026-10-31).
+6. Si `TRACK=ks_nurburgring` y `CONFIG_TRACK=` viene vacío, inyecta
    `CONFIG_TRACK=layout_gp_a` (nombre real de la carpeta; sin esto el server busca
    `.../ks_nurburgring/data/` y los checksums de pista no cuadran).
-6. Mantiene los symlinks `cfg/server_cfg.ini` y `cfg/entry_list.ini` →
+7. Mantiene los symlinks `cfg/server_cfg.ini` y `cfg/entry_list.ini` →
    `content/config/…`, y ejecuta `./acServer.real "$@"`.
 
-## Server Manager v1.7.9 — RETIRADO (2026-10-31)
+## Server Manager v1.7.9 (activo, restaurado 2026-10-31)
 
-> ⚠️ **Deprecado**: la UI `:8772` no respondía de forma fiable, no existía API de
-> arranque (`/api/start` → 404) y no auto-lanzaba el acServer. Se retiró el
-> contenedor y el acServer corre directo vía systemd. Las carreras guardadas del
-> boltdb (`data/server_manager.db`) ya no se usan; la config viva es
-> `content/config/server_cfg.ini` + `entry_list.ini`.
-> Si algún día se revive el SM, sus imágenes/entrypoints legacy siguen en
-> `/srv/assetto-corsa/` (config.yml, data/, entrypoint-wrapper.sh).
+- Imagen `seejy/assetto-server-manager:latest`, usuario `assetto` (uid 1000 del
+  contenedor → **los archivos montados deben ser 1000:1000 en el host**),
+  `network_mode: host`, UI `:8772`, boltdb en `data/`, compose en
+  `/srv/assetto-corsa/docker-compose.yml` con `restart: unless-stopped`.
+- **Entrypoint custom** (`entrypoint-wrapper.sh`): inyecta `[LAUNCHER]`/`[WEATHER_0]`,
+  symlinks `cfg/`, fuerza `REGISTER_TO_LOBBY=0`/`SLEEP_TIME=1`, y `exec server-manager`.
+  El acServer lo lanza el propio SM al iniciar una carrera (no el entrypoint).
+- **Arranque de carrera**: NO existe API simple (`/api/start` → 404). Se hace:
+  - UI: botón **Start** de una carrera guardada (`GET /custom/load/{uuid}`).
+  - API (lo que usa el autostart): login POST + `GET /custom/load/{uuid}`.
+- Carreras guardadas (boltdb):
+  | UUID | Nombre |
+  |---|---|
+  | `9205601d-413c-400a-a477-52bf42c75469` | 🇩🇴 \| Another day of practice at Highlands (**default del autostart**) |
+  | `371cd0f4-3e56-416f-8e1f-235d2b9b336f` | 🇩🇴 \| BMW M235i at Zandvoort |
+  | `765e6e8f-fd10-410f-86f0-0efbc0a5236f` | 🇩🇴 \| F1 2004 at Spa |
+  | `fd8236dc-1871-41e7-90f4-c35b5b686308` | 🇩🇴 \| Another day of practice at Nürburgring GP |
+- `config.yml`: `steam.username: "anonymous"` (el botón Install/Update de la UI fallará;
+  el contenido se instala a mano) y `scan_content_folder_for_changes: false`.
+- Credenciales del panel: `/srv/assetto-corsa/.sm-admin-credentials` (no imprimir).
 
 ## Puertos
 
 | Puerto | Protocolo | Servicio | Acceso |
 |--------|-----------|----------|--------|
+| 8772 | TCP | Server Manager UI | Cloudflare Tunnel (`assetto.armada.do`) |
 | 9600 | UDP + TCP | Juego Assetto Corsa | Internet (`srv00.assetto.armada.do`) |
 | 8082 | TCP | HTTP API del juego (`/INFO`) | Internet (regla iptables 44) |
 
-- ⚠️ **8081 NO disponible**: lo publica `staging-adminer-1` (Docker) → el HTTP del
-  juego se movió a **8082** (`HTTP_PORT` en `server_cfg.ini`).
+- ⚠️ **8081 NO disponible**: lo publica `staging-adminer-1` (Docker). El SM escribe
+  `HTTP_PORT=8081` en cada carrera y el **wrapper acServer lo parchea a 8082**
+  antes de lanzar el binario (verificado: `ss` muestra 8082, config queda 8082).
 - Firewall: iptables INPUT reglas 42 (UDP 9600), 43 (TCP 9600), 44 (TCP 8082),
   persistidas en `/etc/iptables/rules.v4` (verificado 2026-10-31).
 - ⚠️ **Limitación conocida `/INFO`**: el binario v1.15 responde `"ip":""` (Go
@@ -114,8 +146,8 @@ no tolera. El wrapper (1227 B) se ejecuta en cada arranque y:
 
 ## Identidad actual
 
-El nombre visible viene directo de `NAME=` en `content/config/server_cfg.ini`
-(antes lo componía el SM, ya retirado).
+El nombre visible lo compone el SM: `La Vgz - Assetto Corsa - Republica Dominicana`
+(config del SM) + nombre del evento de la carrera guardada.
 
 | Elemento | Valor actual |
 |---|---|
@@ -133,28 +165,35 @@ como planificación de comunidad; se configuran creando carreras en el SM.
 ## Flujo de arranque (verificado 2026-10-31)
 
 ```bash
-# Estado del servicio
-ssh vps-preprod "systemctl status assetto-server --no-pager | head -8"
+# 1. Estado del contenedor + SM
+ssh vps-preprod "docker ps --format '{{.Names}} {{.Status}}' | grep assetto"
+curl -s -o /dev/null -w '%{http_code}\n' https://assetto.armada.do   # 302 = online
 
-# Reinicio manual
-ssh vps-preprod "systemctl restart assetto-server"
+# 2. Arrancar carrera manualmente (si el autostart no lo hizo)
+ssh vps-preprod 'PW=$(awk -F": " "/^Password:/{print \$2}" /srv/assetto-corsa/.sm-admin-credentials); CJ=$(mktemp); curl -s -c $CJ -o /dev/null --data-urlencode "Username=admin" --data-urlencode "Password=$PW" http://127.0.0.1:8772/login; curl -s -b $CJ -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8772/custom/load/9205601d-413c-400a-a477-52bf42c75469'
 
-# Verificación de puertos + /INFO
+# 3. Verificación de puertos + /INFO
 ssh vps-preprod "ss -tulpn | grep -E '9600|8082'"
 curl -s http://154.53.35.102:8082/INFO | head -c 200
 
-# Logs en vivo
-ssh vps-preprod "tail -f /srv/assetto-corsa/assetto/logs/acserver.log"
+# 4. Logs
+ssh vps-preprod "docker logs assetto-corsa-server --tail 20"
 ```
 
-- Auto-restart verificado: `kill -9` del PID → systemd relanza en ~5 s (`RestartSec=5`).
-- Auto-arranque en boot: `systemctl is-enabled assetto-server` → enabled.
-- Rotación de logs: `/etc/logrotate.d/assetto-server` (weekly, rotate 4, copytruncate).
+- **Boot del VPS**: docker compose levanta el contenedor (`restart: unless-stopped`)
+  → `assetto-sm-autostart.service` (oneshot, enabled) espera la UI y lanza la
+  carrera default (Highlands). Skip automático si UDP 9600 ya está activo.
+- **Fallback sin SM**: `assetto-server.service` (disabled) corre el acServer directo
+  en host. NO usar con el contenedor arriba (conflicto de puertos); requiere
+  `chown -R 999:987 /srv/assetto-corsa` (el servicio corre como uid 999).
+- Rotación de logs del fallback: `/etc/logrotate.d/assetto-server` (weekly, rotate 4).
 
 ## Gotchas verificados en vivo (2026-10-31)
 
-1. **systemd es el dueño del servidor** (desde 2026-10-31): `systemctl restart
-   assetto-server` reinicia todo limpio. Ya no hay contenedor ni UI.
+1. **El SM es el dueño del servidor** (restaurado 2026-10-31): el acServer lo lanza
+   el SM al iniciar una carrera. `docker restart assetto-corsa-server` mata el
+   acServer; el autostart systemd lo relanza al boot, o arrancar carrera a mano
+   (UI o `GET /custom/load/{uuid}`).
 2. **Config real**: `content/config/server_cfg.ini` + `entry_list.ini`. `cfg/` son symlinks
    creados por el wrapper; editar `cfg/` no persiste.
 3. **Layout de pista**: el binario usa `content/tracks/<track>/<CONFIG_TRACK>/data/...`
@@ -171,11 +210,16 @@ ssh vps-preprod "tail -f /srv/assetto-corsa/assetto/logs/acserver.log"
 9. **Credenciales débiles**: `ADMIN_PASSWORD` del juego está en valor de setup; rotar.
 10. **`/INFO` devuelve `"ip":""`**: limitación del binario v1.15 (Go + múltiples
     interfaces). No afecta el juego manual; impide auto-join por URL del browser.
-11. **Puerto 8081 ocupado por adminer** (Docker): el HTTP del juego vive en 8082.
-    Si algún día se libera 8081, revertir `HTTP_PORT` y la regla iptables 44.
+11. **Puerto 8081 ocupado por adminer** (Docker): el SM escribe `HTTP_PORT=8081`
+    en cada carrera y el wrapper acServer lo parchea a 8082 antes de lanzar el
+    binario. Si algún día se libera 8081, quitar el sed del wrapper y la regla
+    iptables 44 de 8082.
 12. **Binario estáticamente enlazado**: `acServer.real` es Go 32-bit static →
     corre en cualquier host sin depender de GLIBC (verificado con `ldd`:
-    "not a dynamic executable").
+    "not a dynamic executable"). Es lo que permite el fallback systemd directo.
+13. **Ownership de los montajes**: el contenedor corre como uid 1000 → los
+    archivos de `/srv/assetto-corsa/` deben ser `1000:1000`. El fallback systemd
+    usa uid 999 (`assetto`): si se alterna entre ambos, ajustar el `chown`.
 
 ## Fases
 
@@ -183,9 +227,9 @@ ssh vps-preprod "tail -f /srv/assetto-corsa/assetto/logs/acserver.log"
 |------|--------|-------------|
 | 0 | ✅ | Estructura del proyecto + documentación |
 | 0.5 | ✅ | Paquete oficial v1.15 restaurado (App 244210, depot Windows) |
-| 0.6 | ✅ | Server Manager + Docker → **retirado 2026-10-31** (UI rota, sin auto-start) |
-| 0.7 | ✅ | DNS `srv00.assetto.armada.do` (UDP/TCP 9600) |
-| 0.8 | ✅ | Servidor AC vivo vía **systemd directo** (`assetto-server`, 2026-10-31) |
+| 0.6 | ✅ | Server Manager + Docker (restaurado 2026-10-31 tras prueba sin SM) |
+| 0.7 | ✅ | DNS `srv00.assetto.armada.do` (UDP/TCP 9600) + túnel `assetto.armada.do` |
+| 0.8 | ✅ | Servidor AC vivo + website online + auto-arranque en boot (2026-10-31) |
 | 1 | ⏳ | Verificar join de un cliente real + ajustar carreras/zonas |
 | 2 | ⏳ | Contenido adicional (tracks/cars) si la comunidad lo pide |
 | 3 | ⏳ | Discord/Stracker |
@@ -195,9 +239,6 @@ ssh vps-preprod "tail -f /srv/assetto-corsa/assetto/logs/acserver.log"
 
 - **Join real de cliente** por `srv00.assetto.armada.do:9600` (checksums `data.acd`/pista).
 - Rotar `ADMIN_PASSWORD` (juego).
-- (Opcional) limpiar legacy del SM en `/srv/assetto-corsa/`: `config.yml`, `data/`,
-  `entrypoint-wrapper.sh`, `custom-entrypoint.sh`, `hostname-wrapper/`,
-  `docker-compose.yml`, `.sm-admin-credentials`.
 - (Opcional) proxy que parchee `"ip":""` en `/INFO` si se quiere auto-join por URL.
 - `ui_track.json`/`map.ini` del live timing (cosmético).
 
