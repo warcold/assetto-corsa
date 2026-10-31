@@ -1,5 +1,39 @@
 # CHANGELOG — Assetto Corsa Server
 
+## 2026-10-31
+
+### [02:15] - Migración a systemd directo: Server Manager retirado
+- **Tipo**: infra | arquitectura
+- **Qué**: el acServer corre ahora **directo en el host** vía systemd
+  (`assetto-server.service`), sin Docker ni Server Manager.
+- **Causa**: el SM (Docker) tenía UI `:8772` no fiable, sin API de arranque
+  (`/api/start` → 404), no auto-lanzaba el acServer y el `/INFO` seguía
+  devolviendo `"ip":""`. El enfoque Docker/SM era la fuente de todos los
+  bloqueos; el binario es Go estático → corre directo sin GLIBC.
+- **Cambios**:
+  - Eliminados 5 contenedores zombie AC (boring_black, nervous_ganguly,
+    competent_galileo, exciting_wu, loving_nash).
+  - `HTTP_PORT` 8081 → **8082** (8081 lo ocupa `staging-adminer-1` Docker).
+  - iptables INPUT regla 44 actualizada 8081 → 8082 + persistida en
+    `/etc/iptables/rules.v4` (reglas 42/43 UDP+TCP 9600 ya existían).
+  - Usuario sistema `assetto` (uid 999) + `chown -R` de `/srv/assetto-corsa`.
+  - Servicio `assetto-server.service`: User=assetto, Restart=always,
+    RestartSec=5, enabled, logs append a `assetto/logs/acserver{,.err}.log`.
+  - Logrotate `/etc/logrotate.d/assetto-server` (weekly, rotate 4, copytruncate).
+- **Verificado LIVE**:
+  - `ss -tulpn`: UDP 9600 + TCP 9600 + TCP 8082 escuchando por `acServer.real`.
+  - `/INFO` externo desde kalimete: 200 OK con nombre/pista/puertos correctos.
+  - Auto-restart: `kill -9` del PID → relanzado en ~5 s (PID nuevo).
+  - `systemctl is-enabled` → enabled (arranque en boot garantizado).
+- **Limitación aceptada**: `/INFO` sigue devolviendo `"ip":""` (bug del binario
+  v1.15, Go `net.InterfaceAddrs()`). No afecta el juego: los clientes entran
+  manual con `srv00.assetto.armada.do:9600` en Content Manager.
+- **Legacy sin uso** (borrable): `config.yml`, `data/`, `entrypoint-wrapper.sh`,
+  `custom-entrypoint.sh`, `hostname-wrapper/`, `docker-compose.yml`,
+  `.sm-admin-credentials`.
+- **Docs**: PROJECT.md actualizado (arquitectura, puertos, flujo, gotchas 10-12,
+  fases 0.6/0.8, pendientes).
+
 ## 2026-10-30
 
 ### [16:58] - Limpieza de duplicados/restos + re-arranque del evento
