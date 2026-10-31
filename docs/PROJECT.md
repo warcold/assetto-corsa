@@ -183,6 +183,11 @@ ssh vps-preprod "docker logs assetto-corsa-server --tail 20"
 - **Boot del VPS**: docker compose levanta el contenedor (`restart: unless-stopped`)
   → `assetto-sm-autostart.service` (oneshot, enabled) espera la UI y lanza la
   carrera default (Highlands). Skip automático si UDP 9600 ya está activo.
+- **Watchdog (cron cada 5 min)**: `/srv/assetto-corsa/autostart-race.sh` re-levanta
+  la carrera default si el acServer cae (fin de sesión, crash, stop accidental).
+  Skip si UDP 9600 activo o si existe `/srv/assetto-corsa/.autostart-paused`
+  (crear ese archivo para detener el watchdog; borrarlo para reactivar).
+  Log: `/srv/assetto-corsa/autostart.log`.
 - **Fallback sin SM**: `assetto-server.service` (disabled) corre el acServer directo
   en host. NO usar con el contenedor arriba (conflicto de puertos); requiere
   `chown -R 999:987 /srv/assetto-corsa` (el servicio corre como uid 999).
@@ -220,6 +225,15 @@ ssh vps-preprod "docker logs assetto-corsa-server --tail 20"
 13. **Ownership de los montajes**: el contenedor corre como uid 1000 → los
     archivos de `/srv/assetto-corsa/` deben ser `1000:1000`. El fallback systemd
     usa uid 999 (`assetto`): si se alterna entre ambos, ajustar el `chown`.
+14. **Discord notificaciones rotas (cosmético)**: el boltdb tiene un `channel_id`
+    placeholder inválido (`1215861680093921301xxx`) → en cada arranque de carrera
+    SM loguea `couldn't send discord message: HTTP 400 ... is not snowflake`.
+    No afecta el servidor. Fix: UI → Settings → Discord → poner un channel_id
+    real o vaciar la config de notificaciones.
+15. **El servidor se apaga al terminar la sesión** (LOOP_MODE=0): Practice 30 min
+    → acServer exit → SM marca el evento terminado. El watchdog lo re-levanta en
+    ≤5 min. Si se quiere loop continuo sin watchdog, activar LOOP en la carrera
+    desde la UI del SM.
 
 ## Fases
 

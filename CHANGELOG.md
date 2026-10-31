@@ -2,6 +2,24 @@
 
 ## 2026-10-31
 
+### [05:15] - Watchdog de carrera + hallazgos de la sesión del owner en la UI
+- **Tipo**: infra | mejora
+- **Qué**: el acServer se había apagado (paradas manuales desde la UI entre 04:27–04:43
+  UTC, última acción = stop). Se instaló watchdog y se re-levantó la carrera.
+- **Cambios**:
+  - Watchdog: cron `*/5 * * * * /srv/assetto-corsa/autostart-race.sh` — re-levanta
+    la carrera default si UDP 9600 no responde. Skip si está activo o si existe
+    `/srv/assetto-corsa/.autostart-paused` (control manual del owner).
+  - `autostart-race.sh` + check de flag de pausa.
+  - Verificado en vivo: el watchdog detectó el servidor caído y lo relanzó solo
+    (`autostart.log: carrera 302`), 3 puertos arriba, /INFO externo OK.
+- **Hallazgos**:
+  - Discord notificaciones rotas: `channel_id` placeholder `1215861680093921301xxx`
+    en boltdb → HTTP 400 en cada arranque (cosmético; fix vía UI Settings → Discord).
+  - El servidor se apaga al terminar la sesión (LOOP_MODE=0) — el watchdog lo
+    cubre; alternativa: activar LOOP en la carrera desde la UI.
+- **Estado**: ✅ website 302 + /INFO OK + watchdog activo.
+
 ### [02:45] - Server Manager restaurado: website online + auto-arranque en boot
 - **Tipo**: infra | arquitectura (reversión parcial de la migración de las 02:15)
 - **Qué**: el website `assetto.armada.do` quedó caído (HTTP 502) al retirar el SM.
