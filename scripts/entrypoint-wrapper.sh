@@ -1,59 +1,39 @@
 #!/bin/bash
-# entrypoint-wrapper.sh — Inyecta [LAUNCHER] y [WEATHER_0] en server_cfg.ini ANTES de que Server Manager lance acServer
-# Fix para bugs del Server Manager:
-# 1. Omite [LAUNCHER] al generar server_cfg.ini → acServer crashea
-# 2. Omite [WEATHER_0] al generar server_cfg.ini → acServer crashea (panic: invalid argument to Intn)
-
-set -e
+# entrypoint-wrapper.sh - Server Manager (seejy/assetto-server-manager)
+# Prepara la config que el binario v1.15 exige ANTES de que SM arranque.
+# SOLO estabilidad: NO pisa el diseño de la carrera (eso lo decide la UI del SM).
 
 CFG_FILE="/home/assetto/server-manager/assetto/content/config/server_cfg.ini"
 CFG_LINK="/home/assetto/server-manager/assetto/cfg/server_cfg.ini"
 
-# Función para inyectar [LAUNCHER] si no existe
-inject_launcher() {
-    if [ -f "$CFG_FILE" ] && ! grep -q '^\[LAUNCHER\]' "$CFG_FILE"; then
-        echo "Inyectando [LAUNCHER] en $CFG_FILE"
-        cat >> "$CFG_FILE" <<'LAUNCHER_EOF'
+# 0) Patcher de estabilidad en background (REGISTER_TO_LOBBY=0, SLEEP_TIME=1)
+if [ -f /tmp/config-patcher.sh ]; then
+    nohup bash /tmp/config-patcher.sh >/dev/null 2>&1 &
+    echo "[entrypoint] config patcher started in background (PID $!)"
+fi
 
-[LAUNCHER]
-; Required by acServer to avoid "section 'LAUNCHER' does not exist" panic
-; Empty section is sufficient - just needs to exist
-LAUNCHER_EOF
-    fi
-}
+# 1) [LAUNCHER] obligatorio: el binario v1.15 hace panic si la seccion no existe
+if [ -f "$CFG_FILE" ] && ! grep -q '^\[LAUNCHER\]' "$CFG_FILE"; then
+    printf '\n[LAUNCHER]\n' >> "$CFG_FILE"
+    echo "[entrypoint] [LAUNCHER] inyectado"
+fi
 
-# Función para inyectar [WEATHER_0] si no existe
-inject_weather() {
-    if [ -f "$CFG_FILE" ] && ! grep -q '^\[WEATHER_0\]' "$CFG_FILE"; then
-        echo "Inyectando [WEATHER_0] en $CFG_FILE"
-        cat >> "$CFG_FILE" <<'WEATHER_EOF'
+# 2) [WEATHER_0] obligatorio: sin ella panic "invalid argument to Intn" en UpdateWeather
+if [ -f "$CFG_FILE" ] && ! grep -q '^\[WEATHER_0\]' "$CFG_FILE"; then
+    printf '\n[WEATHER_0]\nGRAPHICS=3_clear\nBASE_TEMPERATURE_AMBIENT=22\nBASE_TEMPERATURE_ROAD=8\n' >> "$CFG_FILE"
+    echo "[entrypoint] [WEATHER_0] inyectado"
+fi
 
-[WEATHER_0]
-GRAPHICS=3_clear
-BASE_TEMPERATURE_AMBIENT=27
-BASE_TEMPERATURE_ROAD=39
-VARIATION_AMBIENT=0.68
-VARIATION_ROAD=1.1
-WEATHER_EOF
-    fi
-}
+# 3) Symlink cfg/server_cfg.ini -> content/config/server_cfg.ini (lo que lee el binario)
+mkdir -p "$(dirname "$CFG_LINK")"
+ln -sfn "$CFG_FILE" "$CFG_LINK"
 
-# Asegurar que el symlink existe
-ensure_symlink() {
-    if [ ! -L "$CFG_LINK" ] || [ "$(readlink "$CFG_LINK")" != "$CFG_FILE" ]; then
-        echo "Creando symlink $CFG_LINK -> $CFG_FILE"
-        ln -sf "$CFG_FILE" "$CFG_LINK"
-    fi
-}
+# 4) Estabilidad: lobby Kunos muerto (404) apaga el server tras 5 intentos;
+#    SLEEP_TIME=0 causa CPU overload. Forzado en cada arranque del contenedor.
+if [ -f "$CFG_FILE" ]; then
+    sed -i -e 's/^REGISTER_TO_LOBBY=.*/REGISTER_TO_LOBBY=0/' \
+           -e 's/^SLEEP_TIME=.*/SLEEP_TIME=1/' "$CFG_FILE" || true
+fi
 
-# Inyectar [LAUNCHER] ANTES de que Server Manager haga cualquier cosa
-inject_launcher
-
-# Inyectar [WEATHER_0] ANTES de que Server Manager haga cualquier cosa
-inject_weather
-
-# Asegurar symlink
-ensure_symlink
-
-# Ejecutar el Server Manager original
+echo "[entrypoint] config preparada, lanzando Server Manager en :8772..."
 exec /usr/bin/server-manager "$@"

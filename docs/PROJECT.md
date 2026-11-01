@@ -299,3 +299,26 @@ ssh vps-preprod "docker logs assetto-corsa-server --tail 20"
 - Docker Image: https://hub.docker.com/r/seejy/assetto-server-manager
 - Content Manager: https://content-manager.net/
 - Steam App (juego): https://store.steampowered.com/app/244210/
+
+## Restauración 2026-11-01
+
+El servidor se restauró después de estar caído (acServer no corría, puertos sin listener).
+
+### Solución implementada
+1. **Config-patcher**: Script que parchea el config cada 0.1s dentro del container (montado en /tmp/config-patcher.sh)
+2. **Entrypoint-wrapper**: Parchea config PERSISTENTMENTE antes de que el SM arranque
+3. **Docker-compose**: Monta el patcher en /tmp/config-patcher.sh (lo que busca el entrypoint)
+4. **Cron autostart**: Cada 5 min, solo parchea config y carga carrera si es necesario (NO mata acServer)
+
+### Estado verificado
+- ✅ Servidor estable por 26+ minutos
+- ✅ `pickup=True` en /INFO
+- ✅ Config correcta: `PICKUP_MODE=1, LOOP_MODE=1, WAIT_TIME=30, SESSION_START=30`
+- ✅ Patcher corriendo (PID 7)
+- ✅ Cron autostart activo (sin loops)
+
+### Archivos clave en VPS
+- `/srv/assetto-corsa/config-patcher.sh` (parchea config cada 0.1s)
+- `/srv/assetto-corsa/entrypoint-wrapper.sh` (parchea config antes de que el SM arranque)
+- `/srv/assetto-corsa/autostart-race.sh` (cron cada 5 min)
+- `/srv/assetto-corsa/docker-compose.yml` (monta patcher en /tmp/config-patcher.sh)
